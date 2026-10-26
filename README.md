@@ -16,7 +16,7 @@ A standalone React and TypeScript reference app for one-clinic CHF RPM operation
 - Practitioner sign-in through `@ovok/core`, including Ovok MFA, with paginated FHIR Patient search and visible request failures.
 - Patient charts with demographics, patient-scoped measurements, questionnaire responses, CareTeam, CarePlan, DeviceUseStatement, and Consent status where accessible.
 - Sandbox actions that create a FHIR CareTeam, CHF RPM CarePlan, or DeviceUseStatement through the authenticated Ovok SDK client.
-- Read-only Signals settings and open alert retrieval through `@ovok/core`.
+- Read-only open Signals alert retrieval through `@ovok/core/next`.
 - Opaque patient-ID links to the RPM dashboard and back. Each application authenticates and checks its own access.
 - Synthetic ECG, weight, and questionnaire readings shared with the mobile and dashboard examples through an in-memory EHR development relay, polled every five seconds.
 

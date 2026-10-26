@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Patient } from "@medplum/fhirtypes";
-import type { OvokClient } from "@ovok/core";
+import type { Ovok } from "@ovok/core/next";
 import {
   Activity, ArrowDown, ArrowRight, CalendarDays, Check, ChevronDown,
   CircleHelp, ClipboardList, HeartHandshake, HeartPulse, LayoutDashboard,
@@ -21,8 +21,6 @@ import { apiBaseUrl, tenantCode } from "./lib/ovokClient";
 import { parseDemoSnapshot } from "./lib/demoRelay";
 
 type PageId = "overview" | "patients" | "operations" | "signals" | "support";
-type LoginResponse = Awaited<ReturnType<OvokClient["login"]>>;
-type AuthenticatedLogin = Extract<LoginResponse, { accessToken: string }>;
 type PatientPage = { patients: Patient[]; total?: number; hasNext: boolean };
 
 const PAGE_SIZE = 20;
@@ -41,7 +39,7 @@ export default function App() {
   const linkedPatientIdIsValid = isFhirLogicalId(linkedPatientId);
   const [page, setPage] = useState<PageId>(linkedDemoPatient ? "patients" : "operations");
   const [mode, setMode] = useState<WorkspaceMode>("demo");
-  const [client, setClient] = useState<OvokClient | null>(null);
+  const [client, setClient] = useState<Ovok | null>(null);
   const [demoState, setDemoState] = useState<DemoState>(createInitialDemoState);
   const [demoRelayConnected, setDemoRelayConnected] = useState(false);
   const [selectedPatientId, setSelectedPatientId] = useState(linkedPatientId ? linkedDemoPatient ? linkedPatientId : "" : "demo-3017");
@@ -96,16 +94,16 @@ export default function App() {
     return () => { current = false; window.clearInterval(timer); };
   }, [mode]);
 
-  async function loadSandboxPatients(activeClient: OvokClient, pageIndex: number): Promise<PatientPage> {
-    const result = await activeClient.search("Patient", {
+  async function loadSandboxPatients(activeClient: Ovok, pageIndex: number): Promise<PatientPage> {
+    const result = await activeClient.fhir.search("Patient", {
       _count: PAGE_SIZE,
       _offset: pageIndex * PAGE_SIZE,
       _sort: "family,given",
     });
     return {
-      patients: result.entry?.flatMap((entry) => entry.resource?.resourceType === "Patient" ? [entry.resource] : []) ?? [],
-      total: result.total,
-      hasNext: result.link?.some((link) => link.relation === "next") ?? false,
+      patients: result.data,
+      total: result.total ?? undefined,
+      hasNext: result.hasMore,
     };
   }
 
@@ -129,8 +127,7 @@ export default function App() {
     }
   }
 
-  async function connectToSandbox(activeClient: OvokClient, login: AuthenticatedLogin) {
-    await activeClient.setActiveLogin(login);
+  async function connectToSandbox(activeClient: Ovok) {
     setClient(activeClient);
     setMode("sandbox");
     setSelectedPatientId("");
@@ -140,7 +137,7 @@ export default function App() {
     await refreshSandboxPatients(0, activeClient);
     if (linkedPatientId && !linkedDemoPatient && linkedPatientIdIsValid) {
       try {
-        const linkedPatient = await activeClient.readResource("Patient", linkedPatientId);
+        const linkedPatient = await activeClient.fhir.read("Patient", linkedPatientId);
         setSandboxPatients((patients) => patients.some((patient) => patient.id === linkedPatient.id)
           ? patients
           : [linkedPatient, ...patients]);
@@ -155,7 +152,7 @@ export default function App() {
   }
 
   async function returnToDemo() {
-    if (client) await client.logout();
+    if (client) await client.auth.logout();
     setClient(null);
     setSandboxPatients([]);
     setSandboxTotal(undefined);
@@ -198,20 +195,20 @@ export default function App() {
     }
 
     if (!client) throw new Error("Sign in to the sandbox before creating a patient.");
-    const duplicates = await client.searchResources<"Patient">("Patient", { email: input.email.trim(), _count: 2 });
-    if (duplicates.length) {
+    const duplicates = await client.fhir.search("Patient", { email: input.email.trim(), _count: 2 });
+    if (duplicates.data.length) {
       throw new Error("A patient with this email is already accessible. Open the existing record to avoid a duplicate.");
     }
 
     const newPatient = buildRegisteredPatient(input);
-    const createdPatient = await client.createResource(newPatient);
+    const createdPatient = await client.fhir.create(newPatient);
     const patientId = createdPatient.id;
     await refreshSandboxPatients(sandboxPage, client);
     if (patientId) openChart(patientId);
     setRegisterOpen(false);
 
     try {
-      await client.invitePatient({ email: input.email.trim(), firstName: input.firstName.trim(), lastName: input.lastName.trim() });
+      await client.invites.care.create({ email: input.email.trim(), firstName: input.firstName.trim(), lastName: input.lastName.trim() });
       setBanner("The Patient record was created. Ovok accepted the invitation request for sending; delivery and account acceptance are not confirmed.");
     } catch (error) {
       setBanner(`Patient/${patientId ?? "record"} was created, but the invitation request failed: ${messageFor(error)}`);
