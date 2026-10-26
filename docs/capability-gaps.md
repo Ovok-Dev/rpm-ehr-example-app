@@ -8,7 +8,7 @@ The EHR is a runnable reference example. SDK support does not grant permission i
 - Patient duplicate preflight by accessible email, FHIR Patient create, followed by a separate `invitePatient` request. This is not atomic; invite acceptance and delivery are not confirmed.
 - Patient chart reads for accessible Observations, QuestionnaireResponses, CareTeams, CarePlans, DeviceUseStatements, and Consent status.
 - CareTeam create/update with available Practitioner references, CHF CarePlan create, and DeviceUseStatement create for an accessible FHIR Device.
-- Read-only Signals settings and open-alert retrieval.
+- Read-only open-alert retrieval.
 - Opaque Patient-ID navigation to the separately authenticated RPM dashboard.
 
 ## Synthetic or local only

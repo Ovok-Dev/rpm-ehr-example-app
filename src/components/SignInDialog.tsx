@@ -1,14 +1,11 @@
 import { useState } from "react";
-import type { OvokClient } from "@ovok/core";
+import type { LoginResult, MfaChallenge, Ovok } from "@ovok/core/next";
 import { LockKeyhole, X } from "lucide-react";
 import { getOvokClient } from "../lib/ovokClient";
 
-type LoginResponse = Awaited<ReturnType<OvokClient["login"]>>;
-type AuthenticatedLogin = Extract<LoginResponse, { accessToken: string }>;
-
 interface SignInDialogProps {
   onClose: () => void;
-  onAuthenticated: (client: OvokClient, login: AuthenticatedLogin) => Promise<void>;
+  onAuthenticated: (client: Ovok) => Promise<void>;
   tenantCode: string;
 }
 
@@ -16,7 +13,7 @@ export function SignInDialog({ onClose, onAuthenticated, tenantCode }: SignInDia
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
-  const [pendingMfa, setPendingMfa] = useState<Extract<LoginResponse, { nextStep: "mfa" }> | null>(null);
+  const [pendingMfa, setPendingMfa] = useState<MfaChallenge | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,25 +24,26 @@ export function SignInDialog({ onClose, onAuthenticated, tenantCode }: SignInDia
 
     try {
       const client = await getOvokClient();
-      const result = await client.login({
-        type: "Practitioner",
-        tenantCode,
+      const result = await client.auth.login({
+        profileType: "Practitioner",
         email: email.trim(),
         password,
       });
-
-      if ("nextStep" in result) {
-        setPendingMfa(result);
-        return;
-      }
-
-      await onAuthenticated(client, result);
-      onClose();
+      await continueWith(client, result);
     } catch (signInError) {
       setError(messageFor(signInError));
     } finally {
       setBusy(false);
     }
+  }
+
+  async function continueWith(client: Ovok, result: LoginResult) {
+    if (result.status === "mfa-required") {
+      setPendingMfa(result.challenge);
+      return;
+    }
+    await onAuthenticated(client);
+    onClose();
   }
 
   async function submitVerification(event: React.FormEvent<HTMLFormElement>) {
@@ -56,8 +54,7 @@ export function SignInDialog({ onClose, onAuthenticated, tenantCode }: SignInDia
 
     try {
       const client = await getOvokClient();
-      await onAuthenticated(client, await pendingMfa.verify(verificationCode.trim()));
-      onClose();
+      await continueWith(client, await client.auth.verifyMfa(pendingMfa, verificationCode.trim()));
     } catch (verificationError) {
       setError(messageFor(verificationError));
     } finally {

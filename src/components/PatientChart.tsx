@@ -4,11 +4,11 @@ import { ArrowLeft, Activity, ClipboardList, HeartPulse, UserRound } from "lucid
 import { type DemoPatient, type WorkspaceMode } from "../domain";
 import { DEMO_MEASUREMENTS } from "../data/demo";
 import { deviceName, patientName, practitionerName, toCarePlan, toCareTeam, toDeviceUseStatement, toFhirPatient } from "../lib/fhir";
-import type { OvokClient } from "@ovok/core";
+import type { Ovok, PagePromise } from "@ovok/core/next";
 
 type ChartTab = "overview" | "demographics" | "observations" | "questionnaires" | "care-team" | "devices";
 interface PatientChartProps {
-  client: OvokClient | null;
+  client: Ovok | null;
   mode: WorkspaceMode;
   patient: Patient | null;
   demoPatient?: DemoPatient | null;
@@ -49,14 +49,14 @@ export function PatientChart({ client, mode, patient, demoPatient, demoPatientId
     setError(null);
 
     Promise.allSettled([
-      client.listPatientMeasurementHistory({ patient: `Patient/${patient.id}`, _sort: "-date", _count: 50 }),
-      client.listPatientQuestionnaireResponses({ patient: `Patient/${patient.id}`, _sort: "-authored", _count: 20 }),
-      client.searchResources<"CareTeam">("CareTeam", { subject: `Patient/${patient.id}`, _count: 20 }),
-      client.searchResources<"CarePlan">("CarePlan", { subject: `Patient/${patient.id}`, _count: 20 }),
-      client.searchResources<"DeviceUseStatement">("DeviceUseStatement", { patient: `Patient/${patient.id}`, _count: 20 }),
-      client.searchResources<"Consent">("Consent", { patient: `Patient/${patient.id}`, _count: 20 }),
-      client.searchResources<"Practitioner">("Practitioner", { _count: 50, _sort: "name" }),
-      client.searchResources<"Device">("Device", { _count: 50 }),
+      dataOf(client.fhir.search("Observation", { patient: `Patient/${patient.id}`, _sort: "-date", _count: 50 })),
+      dataOf(client.fhir.search("QuestionnaireResponse", { patient: `Patient/${patient.id}`, _sort: "-authored", _count: 20 })),
+      dataOf(client.fhir.search("CareTeam", { subject: `Patient/${patient.id}`, _count: 20 })),
+      dataOf(client.fhir.search("CarePlan", { subject: `Patient/${patient.id}`, _count: 20 })),
+      dataOf(client.fhir.search("DeviceUseStatement", { patient: `Patient/${patient.id}`, _count: 20 })),
+      dataOf(client.fhir.search("Consent", { patient: `Patient/${patient.id}`, _count: 20 })),
+      dataOf(client.fhir.search("Practitioner", { _count: 50, _sort: "name" })),
+      dataOf(client.fhir.search("Device", { _count: 50 })),
     ]).then((results) => {
       if (!current) return;
       const failedReads: string[] = [];
@@ -211,6 +211,10 @@ function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : "Ovok could not load this patient's records.";
 }
 
+function dataOf<T>(search: PagePromise<T>): Promise<T[]> {
+  return search.then((page) => page.data);
+}
+
 function applyReadResult<T>(
   result: PromiseSettledResult<T> | undefined,
   label: string,
@@ -252,7 +256,7 @@ function consentSummary(consents: Consent[]): string {
 
 interface SandboxEnrollmentActionsProps {
   patient: Patient;
-  client: OvokClient | null;
+  client: Ovok | null;
   careTeams: CareTeam[];
   carePlans: CarePlan[];
   devices: DeviceUseStatement[];
@@ -294,10 +298,10 @@ function SandboxEnrollmentActions(props: SandboxEnrollmentActionsProps) {
     await runAction(async () => {
       const assignment = toCareTeam(patient, selectedPractitioner, selectedNurse);
       if (activeCareTeam?.id) {
-        await client.updateResource({ ...activeCareTeam, ...assignment, id: activeCareTeam.id, meta: activeCareTeam.meta });
+        await client.fhir.update({ ...activeCareTeam, ...assignment, id: activeCareTeam.id, meta: activeCareTeam.meta });
         return `CareTeam reassigned to ${practitionerName(selectedPractitioner)}${selectedNurse ? ` and ${practitionerName(selectedNurse)}` : ""}.`;
       }
-      await client.createResource(assignment);
+      await client.fhir.create(assignment);
       return `CareTeam assigned to ${practitionerName(selectedPractitioner)}${selectedNurse ? ` and ${practitionerName(selectedNurse)}` : ""}.`;
     });
   }
@@ -305,7 +309,7 @@ function SandboxEnrollmentActions(props: SandboxEnrollmentActionsProps) {
   async function startProgram() {
     if (!client || !patient) return;
     await runAction(async () => {
-      await client.createResource(toCarePlan(patient, activeCareTeam));
+      await client.fhir.create(toCarePlan(patient, activeCareTeam));
       return "A CHF RPM CarePlan was created in Ovok.";
     });
   }
@@ -313,7 +317,7 @@ function SandboxEnrollmentActions(props: SandboxEnrollmentActionsProps) {
   async function assignDevice() {
     if (!client || !patient || !selectedDevice) return;
     await runAction(async () => {
-      await client.createResource(toDeviceUseStatement(patient, selectedDevice));
+      await client.fhir.create(toDeviceUseStatement(patient, selectedDevice));
       return `${deviceName(selectedDevice)} was linked with a DeviceUseStatement.`;
     });
   }
